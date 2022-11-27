@@ -5,10 +5,11 @@ import shutil
 from argparse import ArgumentParser
 from collections.abc import Iterator
 from concurrent import futures
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import Request, urlopen, urlretrieve
 
 from rich.console import Console
@@ -63,14 +64,15 @@ def prepare_download_url(source: db.Source) -> tuple[str, str]:
             "Accept": "application/vnd.pypi.simple.v1+json",
         },
     )
-    with urlopen(request) as page:
-        project_index = json.load(page)
-        for file in reversed(project_index["files"]):
-            # TODO: Support any source wheels
-            if unpack_format := shutil._find_unpack_format(file["filename"]):
-                return file["url"], unpack_format
-        else:
-            raise SkipError.from_source(source, "no suitable archive found")
+    with suppress(URLError):
+        with urlopen(request) as page:
+            project_index = json.load(page)
+            for file in reversed(project_index["files"]):
+                # TODO: Support any source wheels
+                if unpack_format := shutil._find_unpack_format(file["filename"]):
+                    return file["url"], unpack_format
+
+    raise SkipError.from_source(source, "no suitable archive found")
 
 
 @contextmanager
@@ -99,8 +101,8 @@ def download_target(
 ) -> None:
     source_path = base_path / source.name
     if source_path.exists():
-        shutil.rmtree(source_path)
-        source.status = db.SourceStatus.AWAITING_DOWNLOAD
+        source.status = db.SourceStatus.DOWNLOADED
+        return
 
     source_path.mkdir(parents=True)
     with _clear_on_failure(progress, source.name, source_path) as download_task:
