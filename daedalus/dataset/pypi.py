@@ -138,9 +138,10 @@ def download_target(
         )
         shutil.unpack_archive(path, source_path, format=unpack_format)
 
-        [unpacked_path] = source_path.iterdir()
-        unpacked_path.rename(source_path / "src")
-        source.status = db.SourceStatus.DOWNLOADED
+        num_files = list(source_path.iterdir())
+        if len(num_files) == 1 and num_files[0].is_dir():
+            num_files[0].rename(source_path / "src")
+            source.status = db.SourceStatus.DOWNLOADED
 
 
 def download_targets(
@@ -157,7 +158,9 @@ def download_targets(
     with futures.ThreadPoolExecutor(max_workers=workers) as executor:
         with Progress(console=console) as progress:
             total_progress = progress.add_task(
-                "Fetching PyPI targets", total=len(awaiting_sources)
+                "Fetching PyPI targets",
+                total=len(dataset.sources),
+                completed=len(dataset.sources) - len(awaiting_sources),
             )
             for completed_tasks in parallelization.buffered_execution(
                 executor,

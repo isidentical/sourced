@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -35,7 +36,7 @@ class Dataset:
         with NamedTemporaryFile("w") as stream:
             temp_name = Path(stream.name)
             json.dump(self.to_json(), stream, indent=4)
-            temp_name.rename(meta_path)
+            shutil.copyfile(temp_name, meta_path)
             temp_name.touch()
 
     def to_json(self) -> JSONType:
