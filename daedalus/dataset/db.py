@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ JSONType = dict[str, Any]
 class Dataset:
     name: str
     path: Path
-    sources: list[Source]
+    sources: list[Source] = field(default_factory=list)
 
     @classmethod
     def from_cache(cls, cache_dir: Path) -> Dataset:
@@ -49,20 +50,29 @@ class Dataset:
         )
 
 
+class SourceStatus(Enum):
+    AWAITING_DOWNLOAD = auto()
+    DOWNLOADED = auto()
+    SKIPPED = auto()
+
+
 @dataclass
 class Source:
     name: str
-    path: Path
+    path: Path | None = None
+    status: SourceStatus = SourceStatus.AWAITING_DOWNLOAD
 
     @classmethod
     def from_json(cls, json_data: JSONType) -> Source:
         return cls(
             name=json_data["name"],
-            path=Path(json_data["path"]),
+            path=Path(json_data["path"]) if json_data["path"] is not None else None,
+            status=SourceStatus(json_data["status"]),
         )
 
     def to_json(self) -> JSONType:
         return {
             "name": self.name,
-            "path": str(self.path),
+            "path": str(self.path) if self.path is not None else None,
+            "status": self.status.name,
         }
