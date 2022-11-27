@@ -16,6 +16,9 @@ from rich.progress import Progress
 from daedalus.dataset import db
 
 BASE_PYPI_URL = "https://pypi.org"
+_POPULAR_PYPI_PACKAGES_INDEX = (
+    "https://hugovk.github.io/top-pypi-packages/top-pypi-packages-30-days.min.json"
+)
 
 
 @dataclass
@@ -36,6 +39,14 @@ def collect_all_pypi_packages(console: Console) -> Iterator[str]:
             pypi_index = json.load(page)
             for project in pypi_index["projects"]:
                 yield project["name"]
+
+
+def collect_popular_pypi_packages(console: Console) -> Iterator[str]:
+    with console.status("Fetching the initial PyPI index..."):
+        with urlopen(_POPULAR_PYPI_PACKAGES_INDEX) as page:
+            popular_packages = json.load(page)
+            for project in popular_packages["rows"]:
+                yield project["project"]
 
 
 def prepare_download_url(project_name: str) -> tuple[str, str]:
@@ -151,6 +162,14 @@ def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("base_dir", type=Path)
     parser.add_argument("--fresh-index", action="store_true")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "Include all PyPI packages, not just the popular ones in the index (if it"
+            " is a fresh one)."
+        ),
+    )
 
     options = parser.parse_args()
     options.base_dir.mkdir(parents=True, exist_ok=True)
@@ -166,9 +185,20 @@ def main() -> None:
     console = Console()
 
     if fresh_index:
-        for source in collect_all_pypi_packages(console):
-            dataset.sources.append(db.Source(name=source))
+        if options.all:
+            package_index = collect_all_pypi_packages(console)
+        else:
+            package_index = collect_popular_pypi_packages(console)
+
+        dataset.sources = [
+            db.Source(name=project_name) for project_name in package_index
+        ]
         dataset.cache()
+    else:
+        assert not options.all, (
+            "Cannot use --all with a cached index, try passing --fresh-index along"
+            " with it"
+        )
 
     download_targets(console, dataset)
 

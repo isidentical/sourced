@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -51,9 +51,9 @@ class Dataset:
 
 
 class SourceStatus(Enum):
-    AWAITING_DOWNLOAD = auto()
-    DOWNLOADED = auto()
-    SKIPPED = auto()
+    AWAITING_DOWNLOAD = "AWAITING_DOWNLOAD"
+    DOWNLOADED = "DOWNLOADED"
+    SKIPPED = "SKIPPED"
 
 
 @dataclass
