@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import shutil
+import os
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any
 
 DAEDALUS_CACHE_FILE = "dataset.json"
@@ -33,11 +33,10 @@ class Dataset:
         """Cache the dataset metadata."""
 
         meta_path = self.path / DAEDALUS_CACHE_FILE
-        with NamedTemporaryFile("w") as stream:
-            temp_name = Path(stream.name)
-            json.dump(self.to_json(), stream, indent=4)
-            shutil.copyfile(temp_name, meta_path)
-            temp_name.touch()
+        temp_fd, temp_file = tempfile.mkstemp(suffix=meta_path.suffix, dir=self.path)
+        with open(temp_fd, "w") as stream:
+            json.dump(self.to_json(), stream)
+        os.replace(temp_file, meta_path)
 
     def to_json(self) -> JSONType:
         return {
