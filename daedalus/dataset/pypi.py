@@ -7,12 +7,14 @@ from collections.abc import Iterator
 from concurrent import futures
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from urllib.request import Request, urlopen, urlretrieve
 
 from rich.console import Console
 from rich.progress import Progress
 
+from daedalus._internal import parallelization
 from daedalus.dataset import db
 
 BASE_PYPI_URL = "https://pypi.org"
@@ -25,6 +27,11 @@ _POPULAR_PYPI_PACKAGES_INDEX = (
 class SkipError(Exception):
     project: str
     description: str | None
+
+    @classmethod
+    def from_source(cls, source: db.Source, *args, **kwargs) -> SkipError:
+        source.status = db.SourceStatus.SKIPPED
+        return cls(source.name, *args, **kwargs)
 
 
 def collect_all_pypi_packages(console: Console) -> Iterator[str]:
@@ -49,9 +56,9 @@ def collect_popular_pypi_packages(console: Console) -> Iterator[str]:
                 yield project["project"]
 
 
-def prepare_download_url(project_name: str) -> tuple[str, str]:
+def prepare_download_url(source: db.Source) -> tuple[str, str]:
     request = Request(
-        BASE_PYPI_URL + f"/simple/{project_name}",
+        BASE_PYPI_URL + f"/simple/{source.name}",
         headers={
             "Accept": "application/vnd.pypi.simple.v1+json",
         },
@@ -62,7 +69,7 @@ def prepare_download_url(project_name: str) -> tuple[str, str]:
             if unpack_format := shutil._find_unpack_format(file["filename"]):
                 return file["url"], unpack_format
         else:
-            raise SkipError(project_name, "No suitable archive found")
+            raise SkipError.from_source(source, "no suitable archive found")
 
 
 @contextmanager
@@ -72,7 +79,7 @@ def _clear_on_failure(
     cache_path: Path,
 ) -> Iterator[None]:
     download_task = progress.add_task(
-        f"Preparing {project_name} :alarm_clock:", total=None
+        f":alarm_clock: Preparing {project_name}", total=None
     )
     try:
         yield download_task
@@ -86,20 +93,21 @@ def _clear_on_failure(
 
 def download_target(
     progress: Progress,
-    project_name: str,
     base_path: Path,
-) -> Path:
-    source_path = base_path / project_name
+    source: db.Source,
+) -> None:
+    source_path = base_path / source.name
     if source_path.exists():
         shutil.rmtree(source_path)
+        source.status = db.SourceStatus.AWAITING_DOWNLOAD
 
     source_path.mkdir(parents=True)
-    with _clear_on_failure(progress, project_name, source_path) as download_task:
-        download_url, unpack_format = prepare_download_url(project_name)
+    with _clear_on_failure(progress, source.name, source_path) as download_task:
+        download_url, unpack_format = prepare_download_url(source)
 
         progress.update(
             download_task,
-            description=f"Downloading {project_name} :right_arrow_curving_down:",
+            description=f":right_arrow_curving_down:, Downloading {source.name}",
         )
         path, _ = urlretrieve(
             download_url,
@@ -107,12 +115,17 @@ def download_target(
                 download_task, total=total_size, advance=block_size
             ),
         )
+
+        progress.update(
+            download_task,
+            description=f":open_book: Extracting {source.name}",
+            total=None,
+        )
         shutil.unpack_archive(path, source_path, format=unpack_format)
 
         [unpacked_path] = source_path.iterdir()
         unpacked_path.rename(source_path / "src")
-
-    return source_path
+        source.status = db.SourceStatus.DOWNLOADED
 
 
 def download_targets(
@@ -125,37 +138,29 @@ def download_targets(
         if source.status is db.SourceStatus.AWAITING_DOWNLOAD
     ]
 
-    with futures.ThreadPoolExecutor(max_workers=128 * 4) as executor:
+    workers = parallelization.workers(heavy="io")
+    with futures.ThreadPoolExecutor(max_workers=workers) as executor:
         with Progress(console=console) as progress:
             total_progress = progress.add_task(
                 "Fetching PyPI targets", total=len(awaiting_sources)
             )
+            for completed_tasks in parallelization.buffered_execution(
+                executor,
+                iter(awaiting_sources),
+                partial(download_target, progress, dataset.path),
+                max_buffered_tasks=workers * 2,
+            ):
+                progress.update(total_progress, advance=len(completed_tasks))
+                for completed_task in completed_tasks:
+                    try:
+                        completed_task.result()
+                    except SkipError as error:
+                        console.print(
+                            f"Skipping {error.project}:"
+                            f" {error.description or 'unknown cause'}"
+                        )
 
-            download_tasks = {
-                executor.submit(
-                    download_target,
-                    progress,
-                    awaiting_source.name,
-                    dataset.path,
-                ): awaiting_source
-                for awaiting_source in awaiting_sources
-            }
-            for download_task in futures.as_completed(set(download_tasks.keys())):
-                progress.advance(total_progress)
-
-                source = download_tasks.pop(download_task)
-                try:
-                    source.path = download_task.result()
-                except SkipError as error:
-                    console.print(
-                        f"Skipping {error.project}:"
-                        f" {error.description or 'unknown cause'}"
-                    )
-                    source.status = db.SourceStatus.SKIPPED
-                else:
-                    source.status = db.SourceStatus.DOWNLOADED
-
-                dataset.cache()
+                    dataset.cache()
 
 
 def main() -> None:
