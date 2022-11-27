@@ -66,6 +66,7 @@ def prepare_download_url(source: db.Source) -> tuple[str, str]:
     with urlopen(request) as page:
         project_index = json.load(page)
         for file in reversed(project_index["files"]):
+            # TODO: Support any source wheels
             if unpack_format := shutil._find_unpack_format(file["filename"]):
                 return file["url"], unpack_format
         else:
@@ -79,7 +80,7 @@ def _clear_on_failure(
     cache_path: Path,
 ) -> Iterator[None]:
     download_task = progress.add_task(
-        f":alarm_clock: Preparing {project_name}", total=None
+        f":alarm_clock: Preparing {project_name}", total=3
     )
     try:
         yield download_task
@@ -108,18 +109,32 @@ def download_target(
         progress.update(
             download_task,
             description=f":right_arrow_curving_down:, Downloading {source.name}",
+            advance=1,
         )
+
+        total_seen = 0
+
+        def update_download(_, block_size: int, total_size: int) -> None:
+            nonlocal total_seen
+            total_seen += block_size
+
+            progress.update(
+                download_task,
+                description=(
+                    ":right_arrow_curving_down:, Downloading"
+                    f" {source.name} ({total_seen} / {total_size} bytes)"
+                ),
+            )
+
         path, _ = urlretrieve(
             download_url,
-            reporthook=lambda _, block_size, total_size: progress.update(
-                download_task, total=total_size, advance=block_size
-            ),
+            reporthook=update_download,
         )
 
         progress.update(
             download_task,
             description=f":open_book: Extracting {source.name}",
-            total=None,
+            advance=1,
         )
         shutil.unpack_archive(path, source_path, format=unpack_format)
 

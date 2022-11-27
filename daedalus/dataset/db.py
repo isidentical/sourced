@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 DAEDALUS_CACHE_FILE = "dataset.json"
@@ -31,8 +32,11 @@ class Dataset:
         """Cache the dataset metadata."""
 
         meta_path = self.path / DAEDALUS_CACHE_FILE
-        with open(meta_path, "w") as stream:
+        with NamedTemporaryFile("w") as stream:
+            temp_name = Path(stream.name)
             json.dump(self.to_json(), stream, indent=4)
+            temp_name.rename(meta_path)
+            temp_name.touch()
 
     def to_json(self) -> JSONType:
         return {
