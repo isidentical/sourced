@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import importlib
 import time
 from argparse import ArgumentParser
 from collections import Counter
@@ -24,18 +25,6 @@ from rich.console import Console
 from rich.progress import Progress, track
 
 
-def analyze_file(path: str) -> str:
-    try:
-        with open(path, mode="rb") as stream:
-            tree = compile(stream.read(), path, "exec", 1024)
-    except BaseException as exc:
-        if isinstance(exc, KeyboardInterrupt):
-            raise
-        return "PARSE_FAILURE"
-
-    return "CAN_PARSE"
-
-
 def scan_projects(projects: list[str]) -> list[str]:
     return [
         file
@@ -47,12 +36,19 @@ def scan_projects(projects: list[str]) -> list[str]:
 def main():
     parser = ArgumentParser()
     parser.add_argument("pypi_path", type=Path)
+    parser.add_argument("analysis_func", type=str)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--sample-size", type=int, default=None)
 
     options = parser.parse_args()
 
     console = Console()
+    with console.status(":python: Loading the analyzer function"):
+        analysis_package, _, analysis_func = options.analysis_func.partition(":")
+
+        module = importlib.import_module(analysis_package)
+        analysis_func = getattr(module, analysis_func)
+
     projects = [
         project
         for project in options.pypi_path.iterdir()
@@ -111,7 +107,7 @@ def main():
                     break
 
                 running_futures.update(
-                    executor.submit(analyze_file, file) for file in files
+                    executor.submit(analysis_func, file) for file in files
                 )
                 completed_futures, running_futures = wait(running_futures, timeout=0.25)
                 progress.update(file_tracker, advance=len(completed_futures))
