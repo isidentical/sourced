@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import glob
 import importlib
+import os
+import sys
 import time
 from argparse import ArgumentParser
 from collections import Counter
+from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed, wait
+from contextlib import contextmanager
 from itertools import islice
 from pathlib import Path
 
@@ -24,6 +28,11 @@ except ImportError:
 from rich.console import Console
 from rich.progress import Progress, track
 
+from daedalus.dataset import db
+
+# Number of sources per scan task
+_SCAN_TASK_BATCH_SIZE = 64
+
 
 def scan_projects(projects: list[str]) -> list[str]:
     return [
@@ -33,9 +42,18 @@ def scan_projects(projects: list[str]) -> list[str]:
     ]
 
 
+@contextmanager
+def _modify_path(path: str) -> Iterator[None]:
+    try:
+        sys.path.insert(0, path)
+        yield
+    finally:
+        sys.path.remove(path)
+
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument("pypi_path", type=Path)
+    parser.add_argument("datasets", nargs="+")
     parser.add_argument("analysis_func", type=str)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--sample-size", type=int, default=None)
@@ -45,26 +63,33 @@ def main():
     console = Console()
     with console.status(":python: Loading the analyzer function"):
         analysis_package, _, analysis_func = options.analysis_func.partition(":")
-
-        module = importlib.import_module(analysis_package)
+        with _modify_path(os.path.curdir):
+            module = importlib.import_module(analysis_package)
         analysis_func = getattr(module, analysis_func)
 
-    projects = [
-        project
-        for project in options.pypi_path.iterdir()
-        if project.is_dir() and project.name[0] != "."
-    ]
-    console.print("Found", len(projects), "projects")
+    datasets = []
+    for dataset in track(
+        options.datasets,
+        console=console,
+        description=":file_folder: Loading datasets",
+        transient=True,
+    ):
+        datasets.append(db.load(Path(dataset)))
+
+    sources = [source for dataset in datasets for source in dataset.sources]
+    source_paths = [str(source.path) for source in sources if source.path is not None]
+
+    console.print("Found", len(sources), "sources")
 
     if options.sample_size is not None:
-        projects = projects[: options.sample_size]
-        console.print("Sampling only first", len(projects), "projects")
+        sources = sources[: options.sample_size]
+        console.print("Sampling only first", len(sources), "sources")
 
     all_files = []
     with ProcessPoolExecutor(max_workers=options.workers) as executor:
         scan_futures = [
             executor.submit(scan_projects, batch)
-            for batch in batched(projects, n=min(options.workers, 16))
+            for batch in batched(source_paths, n=_SCAN_TASK_BATCH_SIZE)
         ]
 
         for future in track(
@@ -77,7 +102,7 @@ def main():
             all_files.extend(future.result())
 
         console.print(
-            f"Collected {len(all_files)} files from {len(projects)} unique projects."
+            f"Collected {len(all_files)} files from {len(sources)} unique projects."
         )
 
         stats = Counter()
