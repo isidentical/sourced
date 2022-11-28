@@ -30,6 +30,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install -e .
           python -m pip install -r requirements-dev.txt
 
       - name: Test

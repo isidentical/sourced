@@ -101,6 +101,7 @@ def download_target(
 ) -> None:
     source_path = base_path / source.name
     if source_path.exists():
+        source.path = source_path
         source.status = db.SourceStatus.DOWNLOADED
         return
 
@@ -139,6 +140,7 @@ def download_target(
             advance=1,
         )
         shutil.unpack_archive(path, source_path, format=unpack_format)
+        source.path = source_path
 
         num_files = list(source_path.iterdir())
         if len(num_files) == 1 and num_files[0].is_dir():
@@ -202,7 +204,9 @@ def main() -> None:
     try:
         dataset = db.Dataset.from_cache(options.base_dir)
     except FileNotFoundError:
-        dataset = db.Dataset("pypi", options.base_dir)
+        dataset = db.Dataset(
+            "pypi-popular" if options.all else "pypi-all", options.base_dir
+        )
         fresh_index = True
     else:
         fresh_index = options.fresh_index
