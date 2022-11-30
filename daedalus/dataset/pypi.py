@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import shutil
-from argparse import ArgumentParser
 from collections.abc import Iterator
 from concurrent import futures
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen, urlretrieve
@@ -148,7 +148,7 @@ def download_target(
             source.status = db.SourceStatus.DOWNLOADED
 
 
-def download_targets(
+def download_pypi_dataset(
     console: Console,
     dataset: db.Dataset,
 ) -> None:
@@ -185,52 +185,27 @@ def download_targets(
                     dataset.cache()
 
 
-def main() -> None:
-    parser = ArgumentParser()
-    parser.add_argument("base_dir", type=Path)
-    parser.add_argument("--fresh-index", action="store_true")
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help=(
-            "Include all PyPI packages, not just the popular ones in the index (if it"
-            " is a fresh one)."
-        ),
-    )
-
-    options = parser.parse_args()
-    options.base_dir.mkdir(parents=True, exist_ok=True)
-
+def create_pypi_dataset(
+    console: Console,
+    name: str,
+    download_dir: Path,
+    sample_size: int | None = None,
+    *,
+    all: bool = False,
+):
     try:
-        dataset = db.Dataset.from_cache(options.base_dir)
+        dataset = db.Dataset.from_cache(download_dir)
     except FileNotFoundError:
-        dataset = db.Dataset(
-            "pypi-popular" if options.all else "pypi-all", options.base_dir
-        )
-        fresh_index = True
-    else:
-        fresh_index = options.fresh_index
-
-    console = Console()
-
-    if fresh_index:
-        if options.all:
-            package_index = collect_all_pypi_packages(console)
+        if all:
+            sources = collect_all_pypi_packages(console)
         else:
-            package_index = collect_popular_pypi_packages(console)
+            sources = collect_popular_pypi_packages(console)
 
-        dataset.sources = [
-            db.Source(name=project_name) for project_name in package_index
-        ]
-        dataset.cache()
-    else:
-        assert not options.all, (
-            "Cannot use --all with a cached index, try passing --fresh-index along"
-            " with it"
+        dataset = db.Dataset(
+            name,
+            download_dir,
+            sources=[db.Source(name) for name in islice(sources, sample_size)],
         )
+        dataset.cache()
 
-    download_targets(console, dataset)
-
-
-if __name__ == "__main__":
-    main()
+    return dataset

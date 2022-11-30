@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import glob
-import importlib
-import os
-import sys
-import time
-from argparse import ArgumentParser
-from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed, wait
-from contextlib import contextmanager
+from dataclasses import dataclass, field
 from itertools import islice
-from pathlib import Path
+from typing import Callable, TypeVar
 
 try:
     from itertools import batched
@@ -28,7 +22,8 @@ except ImportError:
 from rich.console import Console
 from rich.progress import Progress, track
 
-from daedalus.dataset import db
+from daedalus._internal.parallelization import workers
+from daedalus.dataset.db import GlobalStore
 
 # Number of sources per scan task
 _SCAN_TASK_BATCH_SIZE = 64
@@ -42,109 +37,72 @@ def scan_projects(projects: list[str]) -> list[str]:
     ]
 
 
-@contextmanager
-def _modify_path(path: str) -> Iterator[None]:
-    try:
-        sys.path.insert(0, path)
-        yield
-    finally:
-        sys.path.remove(path)
+ReturnType = TypeVar("ReturnType")
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument("datasets", nargs="+")
-    parser.add_argument("analysis_func", type=str)
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--sample-size", type=int, default=None)
+@dataclass
+class Daedalus:
+    num_processes: int = workers(heavy="both")
+    store: GlobalStore = field(default_factory=GlobalStore.from_file)
+    console: Console = field(default_factory=Console)
 
-    options = parser.parse_args()
-
-    console = Console()
-    with console.status(":python: Loading the analyzer function"):
-        analysis_package, _, analysis_func = options.analysis_func.partition(":")
-        with _modify_path(os.path.curdir):
-            module = importlib.import_module(analysis_package)
-        analysis_func = getattr(module, analysis_func)
-
-    datasets = []
-    for dataset in track(
-        options.datasets,
-        console=console,
-        description=":file_folder: Loading datasets",
-        transient=True,
-    ):
-        datasets.append(db.load(Path(dataset)))
-
-    sources = [source for dataset in datasets for source in dataset.sources]
-    source_paths = [str(source.path) for source in sources if source.path is not None]
-
-    console.print("Found", len(sources), "sources")
-
-    if options.sample_size is not None:
-        sources = sources[: options.sample_size]
-        console.print("Sampling only first", len(sources), "sources")
-
-    all_files = []
-    with ProcessPoolExecutor(max_workers=options.workers) as executor:
-        scan_futures = [
-            executor.submit(scan_projects, batch)
-            for batch in batched(source_paths, n=_SCAN_TASK_BATCH_SIZE)
+    def run_on(
+        self,
+        dataset_name: str,
+        analysis_func: Callable[[str], ReturnType],
+    ) -> Iterator[ReturnType]:
+        dataset = self.store.datasets[dataset_name]
+        sources = [
+            # Representing all the sources as pathlib objects are
+            # really slow. We represent only the main path as a
+            # pathlib object and the rest as strings.
+            str(source.path)
+            for source in dataset.sources
+            if source.path is not None
         ]
 
-        for future in track(
-            as_completed(scan_futures),
-            console=console,
-            transient=True,
-            description="Scanning python files :eyes:",
-            total=len(scan_futures),
-        ):
-            all_files.extend(future.result())
+        self.console.print("Found", len(sources), "sources")
+        all_files = []
+        with ProcessPoolExecutor(max_workers=self.num_processes) as executor:
+            scan_futures = [
+                executor.submit(scan_projects, batch)
+                for batch in batched(sources, n=_SCAN_TASK_BATCH_SIZE)
+            ]
 
-        console.print(
-            f"Collected {len(all_files)} files from {len(sources)} unique projects."
-        )
+            for future in track(
+                as_completed(scan_futures),
+                console=self.console,
+                transient=True,
+                description="Scanning python files :eyes:",
+                total=len(scan_futures),
+            ):
+                all_files.extend(future.result())
 
-        stats = Counter()
-        start_time = time.perf_counter()
-
-        def show_stats():
-            spent_time = time.perf_counter() - start_time
-            parsed_files, skipped_files = stats["CAN_PARSE"], stats["PARSE_FAILURE"]
-            total_files = parsed_files + skipped_files
-
-            return (
-                f"{parsed_files} successfully parsed, {skipped_files} skipped.\n"
-                f"Average speed: {total_files / spent_time:.2f} files per second."
+            self.console.print(
+                f"Collected {len(all_files)} files from {len(sources)} unique projects."
             )
 
-        with Progress(transient=True, console=console) as progress:
-            file_tracker = progress.add_task("Files", total=len(all_files))
-            stats_tracker = progress.add_task(show_stats(), total=None)
+            with Progress(transient=True, console=self.console) as progress:
+                file_tracker = progress.add_task("Files", total=len(all_files))
 
-            running_futures: set[Future[str]] = set()
-            left_files = iter(all_files)
-            max_task_buffer = options.workers * 64
+                running_futures: set[Future[ReturnType]] = set()
+                left_files = iter(all_files)
+                max_task_buffer = self.num_processes * 64
 
-            while True:
-                files = list(islice(left_files, max_task_buffer - len(running_futures)))
-                if not files:
-                    break
+                while True:
+                    files = list(
+                        islice(left_files, max_task_buffer - len(running_futures))
+                    )
+                    if not files:
+                        break
 
-                running_futures.update(
-                    executor.submit(analysis_func, file) for file in files
-                )
-                completed_futures, running_futures = wait(running_futures, timeout=0.25)
-                progress.update(file_tracker, advance=len(completed_futures))
+                    running_futures.update(
+                        executor.submit(analysis_func, file) for file in files
+                    )
+                    completed_futures, running_futures = wait(
+                        running_futures, timeout=0.25
+                    )
+                    progress.update(file_tracker, advance=len(completed_futures))
 
-                for future in completed_futures:
-                    state = future.result()
-                    stats[state] += 1
-
-                progress.update(stats_tracker, description=show_stats())
-
-        console.print(show_stats())
-
-
-if __name__ == "__main__":
-    main()
+                    for future in completed_futures:
+                        yield future.result()

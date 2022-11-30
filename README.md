@@ -1,3 +1,3 @@
 # Daedalus
 
-Tooling around mass-scale Python testing.
+Tooling around mass-scale Python source code analysis.

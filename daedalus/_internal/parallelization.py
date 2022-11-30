@@ -18,9 +18,9 @@ def workers(*, heavy: Literal["io", "cpu", "both"]) -> int:
     if heavy == "io":
         return cpu_count * 4
     elif heavy == "cpu":
-        return cpu_count
+        return round(cpu_count * 1.25)
     elif heavy == "both":
-        return round(cpu_count * 1.5)
+        return round(cpu_count * 2)
     else:
         raise ValueError(f"Invalid heavy workload type: {heavy!r}")
 

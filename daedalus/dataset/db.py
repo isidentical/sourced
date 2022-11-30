@@ -8,18 +8,25 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from platformdirs import user_config_dir
+from platformdirs import user_cache_path, user_config_path
 
 GLOBAL_CONFIG_VERSION = "0.0.1"
+GLOBAL_DATA_VERSION = "0.0.1"
 
-DAEDALUS_GLOBAL_DIR = Path(
-    user_config_dir(
-        "daedalus",
-        "daedalus",
-        version=GLOBAL_CONFIG_VERSION,
-    )
+DAEDALUS_CONFIG_DIR = user_config_path(
+    "daedalus",
+    "daedalus",
+    version=GLOBAL_CONFIG_VERSION,
 )
-DAEDALUS_GLOBAL_DIR.mkdir(parents=True, exist_ok=True)
+DAEDALUS_DATA_DIR = user_cache_path(
+    "daedalus",
+    "daedalus",
+    version=GLOBAL_DATA_VERSION,
+)
+
+DAEDALUS_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+DAEDALUS_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 DEFAULT_DATASET_CACHE_FILE_NAME = "datasets.json"
 JSONType = dict[str, Any]
@@ -119,19 +126,22 @@ class Source:
 
 @dataclass
 class GlobalStore:
+    path: Path
     datasets: dict[str, Dataset] = field(default_factory=dict)
-    path: Path = DAEDALUS_GLOBAL_DIR / "store.json"
 
     @classmethod
-    def from_file(cls, path: Path) -> GlobalStore:
+    def from_file(
+        cls,
+        path: Path = DAEDALUS_CONFIG_DIR / "store.json",
+    ) -> GlobalStore:
         if not path.exists():
-            return cls(path=path)
+            return cls(path)
 
         with open(path) as stream:
-            return cls.from_json(json.load(stream), path=path)
+            return cls.from_json(path, json.load(stream))
 
     @classmethod
-    def from_json(cls, json_data: JSONType, path: Path) -> GlobalStore:
+    def from_json(cls, path: Path, json_data: JSONType) -> GlobalStore:
         datasets = {}
         for dataset in json_data["datasets"]:
             name = dataset["name"]
@@ -146,7 +156,7 @@ class GlobalStore:
             else:
                 datasets[name] = dataset
 
-        return cls(datasets, path=path)
+        return cls(path, datasets=datasets)
 
     def to_json(self) -> JSONType:
         # Only include references to the actual dataset metadata
