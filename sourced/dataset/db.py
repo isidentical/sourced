@@ -13,19 +13,19 @@ from platformdirs import user_cache_path, user_config_path
 GLOBAL_CONFIG_VERSION = "0.0.1"
 GLOBAL_DATA_VERSION = "0.0.1"
 
-DAEDALUS_CONFIG_DIR = user_config_path(
-    "daedalus",
-    "daedalus",
+SOURCED_CONFIG_DIR = user_config_path(
+    "sourced",
+    "sourced",
     version=GLOBAL_CONFIG_VERSION,
 )
-DAEDALUS_DATA_DIR = user_cache_path(
-    "daedalus",
-    "daedalus",
+SOURCED_DATA_DIR = user_cache_path(
+    "sourced",
+    "sourced",
     version=GLOBAL_DATA_VERSION,
 )
 
-DAEDALUS_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-DAEDALUS_DATA_DIR.mkdir(parents=True, exist_ok=True)
+SOURCED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+SOURCED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 DEFAULT_DATASET_CACHE_FILE_NAME = "datasets.json"
@@ -132,7 +132,7 @@ class GlobalStore:
     @classmethod
     def from_file(
         cls,
-        path: Path = DAEDALUS_CONFIG_DIR / "store.json",
+        path: Path = SOURCED_CONFIG_DIR / "store.json",
     ) -> GlobalStore:
         if not path.exists():
             return cls(path)

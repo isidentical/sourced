@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from daedalus.dataset.db import (
+from sourced.dataset.db import (
     DEFAULT_DATASET_CACHE_FILE_NAME,
     Dataset,
     GlobalStore,

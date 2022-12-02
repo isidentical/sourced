@@ -22,8 +22,8 @@ except ImportError:
 from rich.console import Console
 from rich.progress import Progress, track
 
-from daedalus._internal.parallelization import workers
-from daedalus.dataset.db import GlobalStore
+from sourced._internal.parallelization import workers
+from sourced.dataset.db import GlobalStore
 
 # Number of sources per scan task
 _SCAN_TASK_BATCH_SIZE = 64
@@ -41,7 +41,7 @@ ReturnType = TypeVar("ReturnType")
 
 
 @dataclass
-class Daedalus:
+class Sourced:
     num_processes: int = workers(heavy="both")
     store: GlobalStore = field(default_factory=GlobalStore.from_file)
     console: Console = field(default_factory=Console)
