@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import os
 from collections.abc import Iterator
 from concurrent import futures
 from contextlib import contextmanager, suppress
@@ -35,7 +36,17 @@ class SkipError(Exception):
         return cls(source.name, *args, **kwargs)
 
 
+PYPI_ALL_WHITELIST = os.getenv("PYPI_ALL_WHITELIST", None)
+PYPI_MAX_MBS = float(os.getenv("PYPI_MAX_MBS", float("inf"))) * (1024 * 1024)
+
+
 def collect_all_pypi_packages(console: Console) -> Iterator[str]:
+    filter_path = Path(PYPI_ALL_WHITELIST) if PYPI_ALL_WHITELIST else None
+    if filter_path:
+        allowed_packages = frozenset(filter_path.read_text().splitlines())
+    else:
+        allowed_packages = None
+
     request = Request(
         BASE_PYPI_URL + "/simple",
         headers={
@@ -46,6 +57,8 @@ def collect_all_pypi_packages(console: Console) -> Iterator[str]:
         with urlopen(request) as page:
             pypi_index = json.load(page)
             for project in pypi_index["projects"]:
+                if allowed_packages and project["name"] not in allowed_packages:
+                    continue
                 yield project["name"]
 
 
@@ -58,16 +71,13 @@ def collect_popular_pypi_packages(console: Console) -> Iterator[str]:
 
 
 def prepare_download_url(source: db.Source) -> tuple[str, str]:
-    request = Request(
-        BASE_PYPI_URL + f"/simple/{source.name}",
-        headers={
-            "Accept": "application/vnd.pypi.simple.v1+json",
-        },
-    )
+    request = Request(BASE_PYPI_URL + f"/pypi/{source.name}/json")
     with suppress(URLError):
         with urlopen(request) as page:
             project_index = json.load(page)
-            for file in reversed(project_index["files"]):
+            for file in reversed(project_index["urls"]):
+                if file["size"] >= PYPI_MAX_MBS:
+                    continue
                 # TODO: Support any source wheels
                 if unpack_format := shutil._find_unpack_format(file["filename"]):
                     return file["url"], unpack_format
@@ -170,7 +180,7 @@ def download_pypi_dataset(
                 executor,
                 iter(awaiting_sources),
                 partial(download_target, progress, dataset.path),
-                max_buffered_tasks=workers * 2,
+                max_buffered_tasks=workers * 4,
             ):
                 progress.update(total_progress, advance=len(completed_tasks))
                 for completed_task in completed_tasks:
