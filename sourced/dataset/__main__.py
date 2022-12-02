@@ -20,6 +20,7 @@ def create_dataset(
     source: str,
     sample_size: int,
     base_data_dir: Path,
+    re_index: bool,
 ) -> None:
     download_dir = base_data_dir / name
     download_dir.mkdir(exist_ok=True)
@@ -33,6 +34,7 @@ def create_dataset(
             download_dir=download_dir,
             all=source == "pypi-all",
             sample_size=sample_size,
+            fresh=re_index,
         )
         store.cache()
 
@@ -72,6 +74,11 @@ def main(argv: list[str] | None = None) -> None:
         type=Path,
         help="The directory to download the packages to",
         default=SOURCED_DATA_DIR,
+    )
+    create_parser.add_argument(
+        "--re-index",
+        action="store_true",
+        help="Re-index the dataset (e.g. a change in the contents / sample size)",
     )
     create_parser.set_defaults(func=create_dataset)
 

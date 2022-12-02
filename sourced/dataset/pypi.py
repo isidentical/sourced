@@ -192,20 +192,40 @@ def create_pypi_dataset(
     sample_size: int | None = None,
     *,
     all: bool = False,
+    fresh: bool = False,
 ):
     try:
         dataset = db.Dataset.from_cache(download_dir)
     except FileNotFoundError:
+        fresh = True
+        dataset = None
+
+    if fresh:
         if all:
             sources = collect_all_pypi_packages(console)
         else:
             sources = collect_popular_pypi_packages(console)
+
+        if dataset is not None:
+            previous_states = {
+                source.name: source.status
+                for source in dataset.sources
+                if source.status is not db.SourceStatus.AWAITING_DOWNLOAD
+            }
+        else:
+            previous_states = {}
 
         dataset = db.Dataset(
             name,
             download_dir,
             sources=[db.Source(name) for name in islice(sources, sample_size)],
         )
+        for source in dataset.sources:
+            if source.name in previous_states:
+                source.status = previous_states[source.name]
+            elif (dataset.path / source.name).exists():
+                source.status = db.SourceStatus.DOWNLOADED
         dataset.cache()
 
+    assert dataset is not None
     return dataset
