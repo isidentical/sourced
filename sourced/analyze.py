@@ -101,7 +101,7 @@ class Sourced:
                     files = list(
                         islice(left_files, max_task_buffer - len(running_futures))
                     )
-                    if not files:
+                    if not files and not running_futures:
                         break
 
                     running_futures.update(
