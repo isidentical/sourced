@@ -3,11 +3,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-from daedalus.dataset import __main__ as datasets_cli
+from sourced.dataset import __main__ as datasets_cli
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser("daedalus")
+    parser = argparse.ArgumentParser("sourced")
     parser.add_argument(
         "action",
         type=str,

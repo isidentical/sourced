@@ -15,8 +15,8 @@ from urllib.request import Request, urlopen, urlretrieve
 from rich.console import Console
 from rich.progress import Progress
 
-from daedalus._internal import parallelization
-from daedalus.dataset import db
+from sourced._internal import parallelization
+from sourced.dataset import db
 
 BASE_PYPI_URL = "https://pypi.org"
 _POPULAR_PYPI_PACKAGES_INDEX = (

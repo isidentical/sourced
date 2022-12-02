@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from daedalus.dataset.db import DAEDALUS_DATA_DIR, GlobalStore
+from sourced.dataset.db import SOURCED_DATA_DIR, GlobalStore
 
 
 def list_datasets(store: GlobalStore, console: Console) -> None:
@@ -25,7 +25,7 @@ def create_dataset(
     download_dir.mkdir(exist_ok=True)
 
     if source == "pypi-popular" or source == "pypi-all":
-        from daedalus.dataset.pypi import create_pypi_dataset, download_pypi_dataset
+        from sourced.dataset.pypi import create_pypi_dataset, download_pypi_dataset
 
         dataset = store.datasets[name] = create_pypi_dataset(
             console,
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> None:
         "--base-data-dir",
         type=Path,
         help="The directory to download the packages to",
-        default=DAEDALUS_DATA_DIR,
+        default=SOURCED_DATA_DIR,
     )
     create_parser.set_defaults(func=create_dataset)
 

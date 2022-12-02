@@ -5,7 +5,7 @@ import tokenize
 from argparse import ArgumentParser
 from collections import Counter
 
-from daedalus import Daedalus
+from sourced import Sourced
 
 
 def most_common_name(file: str) -> dict[str, int]:
@@ -28,10 +28,10 @@ def main():
     parser.add_argument("dataset")
 
     options = parser.parse_args()
-    daedalus = Daedalus()
+    sourced = Sourced()
 
     results = Counter()
-    for result in daedalus.run_on(options.dataset, most_common_name):
+    for result in sourced.run_on(options.dataset, most_common_name):
         results.update(result)
 
     for name, count in results.most_common(n=20):
