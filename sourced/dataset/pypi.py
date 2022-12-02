@@ -217,24 +217,23 @@ def create_pypi_dataset(
             sources = collect_popular_pypi_packages(console)
 
         if dataset is not None:
-            previous_states = {
-                source.name: source.status
-                for source in dataset.sources
-                if source.status is not db.SourceStatus.AWAITING_DOWNLOAD
-            }
+            previous_states = {source.name: source for source in dataset.sources}
         else:
             previous_states = {}
 
         dataset = db.Dataset(
             name,
             download_dir,
-            sources=[db.Source(name) for name in islice(sources, sample_size)],
+            sources=[
+                previous_states.get(name, db.Source(name))
+                for name in islice(sources, sample_size)
+            ],
         )
         for source in dataset.sources:
-            if source.name in previous_states:
-                source.status = previous_states[source.name]
-            elif (dataset.path / source.name).exists():
+            if (dataset.path / source.name).exists():
                 source.status = db.SourceStatus.DOWNLOADED
+                source.path = dataset.path / source.name
+
         dataset.cache()
 
     assert dataset is not None

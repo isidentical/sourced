@@ -37,6 +37,13 @@ def compare_action(dataset: str):
             "parsed": {file for file, result in raw_data.items() if result},
             "not_parsed": {file for file, result in raw_data.items() if not result},
         }
+        print(
+            f"Stats for {version_key}:",
+            "parsed:",
+            len(data[version_key]["parsed"]),
+            "not parsed:",
+            len(data[version_key]["not_parsed"]),
+        )
 
     # Files that can be parsed with earlier versions but not
     # the newer ones
@@ -49,7 +56,7 @@ def compare_action(dataset: str):
                 f"Files that can be parsed with {version_key} but not"
                 f" {other_version_key}:"
             )
-            for file in version_data["not_parsed"] & other_version_data["parsed"]:
+            for file in version_data["parsed"] & other_version_data["not_parsed"]:
                 print(f"  {file}")
 
             print()
