@@ -50,6 +50,8 @@ class Sourced:
         self,
         dataset_name: str,
         analysis_func: Callable[[str], ReturnType],
+        *,
+        filter_func: Callable[[str], bool] | None = None,
     ) -> Iterator[ReturnType]:
         dataset = self.store.datasets[dataset_name]
         sources = [
@@ -81,6 +83,12 @@ class Sourced:
             self.console.print(
                 f"Collected {len(all_files)} files from {len(sources)} unique projects."
             )
+
+            if filter_func:
+                all_files = list(filter(filter_func, all_files))
+                self.console.print(
+                    f"Filtered to {len(all_files)} files using the provided filter."
+                )
 
             with Progress(transient=True, console=self.console) as progress:
                 file_tracker = progress.add_task("Files", total=len(all_files))
